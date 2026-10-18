@@ -1,53 +1,106 @@
-# Android SDK Installer
+# Flutter & Android 1-Click Fast Installer
 
-A command-line tool to automate the setup of Android Command Line Tools. This script fetches the latest tools from the official Android Developers site, handles downloading, and extracts them to the appropriate platform-specific directory.
+A modern, zero-friction installer that takes you from a clean machine to a running Flutter "Hello World" app on an Android emulator in **under 5 minutes** with a single command:
 
-## Rationale
+```bash
+curl -fsSL https://raw.githubusercontent.com/<user>/android_sdk_installer/main/install.sh | bash
+```
 
-Whereas installing Android Studio reduces **some** complexity for Flutter developers to get the environment they need for deploying Android applications, it does waste bandwidth because users have to download 1.5GB of an app that they probably won't use just to get another 1GB+ of Java runtime and Android SDK components.
+---
 
-There has always been a path to get things installed without Android Studio but it required a bunch of manual steps and knowing exact locations of where to put things. This project formalizes the process of the install flow.
+## ⚡ The 5-Minute Setup
 
+Instead of downloading 1.5 GB of Android Studio just to get an Android emulator, or manually hunting down Google's command-line tools zip and wrestling with directory hierarchies:
 
-## Features
+This installer leverages Google's official **Android CLI** and Google Cloud Storage to configure everything autonomously in one pass:
 
-- **Automated Discovery**: Scrapes the latest Command Line Tools URL for your platform.
-- **Component Setup**: Automatically installs NDK (28.2.x), Build Tools (36.0.0), Platforms (Android 36), System Images, and more via `sdkmanager`.
-- **Platform Support**: Optimized for **macOS** and **Linux**. While it recognizes Windows, many features currently rely on `bash` (e.g., license acceptance, SDKMAN, AVD creation), so Windows support is limited unless a Unix-like environment is available(like WSL).
-- **Smart Extraction**: Automatically nests files in `cmdline-tools/latest` for compatibility with `sdkmanager`.
-- **Dynamic Architecture Detection**: Automatically detects CPU architecture (`arm64-v8a` for M-series/ARM or `x86_64` for Intel/AMD) to ensure the correct Android system image is installed.
-- **Auto-Executable Tooling**: Automatically checks and sets the executable bit for `sdkmanager` on macOS and Linux, ensuring smooth installation even if permissions are missing.
-- **Play Store Images**: Specifically targets `google_apis_playstore` variants for better application testing support.
-- **Interactive**: Prompts for confirmation of Android SDK installation, target directory, optional Java setup, automatic PATH configuration, AVD creation, and **Flutter integration**.
-- **Flutter Support**: Automatically informs Flutter of the new Android SDK location using `flutter config --android-sdk` and runs `flutter doctor` for status verification.
-- **AVD Management**: Automatically creates an Android Virtual Device (AVD) with the latest system image and enables the hardware keyboard for better usability.
-- **Java Management**: Integrated SDKMAN support for installing Amazon Corretto Java versions (Java 17 recommended).
+```
+[1/7] Detect OS & CPU Architecture (Linux / macOS, x64 / arm64)
+[2/7] Download & Bootstrap latest stable Flutter SDK
+[3/7] Verify or install Java 17 LTS via SDKMAN
+[4/7] Install Google Android CLI (~/.local/bin/android)
+[5/7] Install Android SDK, Platform 35/36, Build-Tools, & System Image
+[6/7] Create AVD ('medium_phone') & Enable Hardware Keyboard
+[7/7] Scaffold Hello World app & run 'flutter doctor'
+```
 
-## Getting started
+---
 
-Ensure you have Dart or Flutter installed on your system.
+## 🚀 Usage
 
-## Usage
+### 1. The 1-Click Command (Zero Dependencies)
+Run directly in your terminal (Linux, macOS, or WSL):
+```bash
+curl -fsSL https://raw.githubusercontent.com/<user>/android_sdk_installer/main/install.sh | bash
+```
 
-1. Clone the repository.
-2. Run `dart pub get` to install dependencies.
-3. Execute the installer script:
+### 2. Running Locally with Options
+You can clone the repository and run with customizable options:
+```bash
+./install.sh [options]
+
+Options:
+  --dry-run           Print planned actions without downloading or modifying files
+  --non-interactive   Run without interactive confirmation prompts
+  --skip-emulator     Do not create an Android Virtual Device (AVD)
+  --skip-sample       Do not scaffold the Hello World Flutter application
+  --update-profile    Only update shell profile environment exports and exit
+  --help, -h          Show help message
+```
+
+#### Customizing Installation Directories
+The script supports environment variable overrides:
+```bash
+FLUTTER_DEST_DIR="$HOME/tools/flutter" \
+ANDROID_SDK_ROOT="$HOME/Android/Sdk" \
+LOCAL_BIN_DIR="$HOME/.local/bin" \
+./install.sh
+```
+
+---
+
+## 🛠️ Interactive Companion Manager
+
+Once Flutter is installed, you can use the Dart companion CLI anytime to manage your Android development environment:
 
 ```bash
 dart run lib/android_sdk_installer.dart
 ```
 
-4. Follow the interactive prompts to confirm your Android SDK root directory.
+Features:
+- **Interactive Component Management**: Choose and install specific Android API levels (34, 35, 36) and build-tools via Google's `android sdk install`.
+- **AVD Profile Selector**: Browse hardware profiles (`medium_phone`, `small_phone`, `medium_desktop`, etc.) and spin up emulators on demand.
+- **Environment Diagnostics**: Query active SDK configurations, connected devices, and verify `flutter doctor` health.
 
-## Post-Installation
+---
 
-After the script finishes, add the binary path to your shell configuration (e.g., `.zshrc` or `.bashrc`):
+## 🧪 Testing & Clean-Room Verification
+
+To test the installer safely on a machine that already has Flutter or Android installed without altering any host files or configuration, run the clean-room sandbox test suite:
 
 ```bash
-# Example for macOS/Linux
-export PATH="$HOME/Library/Android/Sdk/cmdline-tools/latest/bin:$PATH"
+./test/test_sandbox_install.sh
 ```
 
-## Additional information
+This test:
+1. Provisions an ephemeral sandbox directory in `/tmp`.
+2. Strips all host environment paths using `env -i`, hiding any existing host Flutter, Java, or Android installations.
+3. Simulates a clean-slate system to verify all installer phases end-to-end.
+4. Verifies idempotent `.bashrc` updates (ensuring only one configuration block is written).
+5. Guarantees that the host development environment is 100% untouched.
 
-This tool is designed to simplify the initial setup of Android SDKs for developers using Flutter or pure Android development.
+---
+
+## 📋 Platform Support
+
+| Operating System | Architectures | Status |
+| :--- | :--- | :--- |
+| **Linux** (Ubuntu, Debian, Fedora, Arch) | `x86_64`, `arm64` | ✅ Fully Supported |
+| **macOS** (Apple Silicon M-Series, Intel) | `arm64`, `x86_64` | ✅ Fully Supported |
+| **WSL2** (Windows Subsystem for Linux) | `x86_64` | ✅ Piggybacks on Linux targets |
+
+---
+
+## 📄 License
+
+MIT License. See [LICENSE](file:///home/jwill/Documents/GitHub/android_sdk_installer/LICENSE) for details.

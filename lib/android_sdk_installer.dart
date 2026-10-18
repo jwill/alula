@@ -1,18 +1,14 @@
+// ignore_for_file: avoid_print
 import 'dart:io';
-import 'package:archive/archive_io.dart';
-import 'package:http/http.dart' as http;
-import 'package:html/parser.dart' as parser;
 import 'package:interact/interact.dart';
 import 'package:path/path.dart' as p;
 
-/// Preferred Java version (major version number followed by a dot).
-const String JAVA_VERSION_PREFERENCE = '17.';
+/// Preferred Java major version.
+const int javaVersionMinimum = 17;
 
-/// Android SDK component versions
-const String ANDROID_NDK_VERSION = '28.2.13676358';
-const String ANDROID_API_LEVEL = '36';
-const String ANDROID_BUILD_TOOLS_VERSION = '36.0.0';
-const String ANDROID_CMAKE_VERSION = '4.1.2';
+/// Recommended Android SDK component versions
+const String defaultAndroidApiLevel = '35';
+const String defaultAndroidBuildToolsVersion = '35.0.0';
 
 /// Detects the current CPU architecture and returns the corresponding Android architecture string.
 String getArchitecture() {
@@ -24,7 +20,6 @@ String getArchitecture() {
     return 'x86_64';
   }
 
-  // Fallback for macOS if Platform.version is ambiguous
   if (Platform.isMacOS) {
     final result = Process.runSync('uname', ['-m']);
     if (result.stdout.toString().trim() == 'arm64') {
@@ -32,624 +27,355 @@ String getArchitecture() {
     }
   }
 
-  // Default to x86_64 as a safe bet for older systems
   return 'x86_64';
 }
 
-String get androidSystemImage {
+/// Returns the system image package string for the current architecture.
+String getAndroidSystemImage(String apiLevel) {
   final arch = getArchitecture();
-  // google_apis_playstore is not available for arm64 on API 36 yet.
-  final variant = (arch == 'arm64-v8a' && ANDROID_API_LEVEL == '36')
-      ? 'google_apis'
-      : 'google_apis_playstore';
-
-  return 'system-images;android-$ANDROID_API_LEVEL;$variant;$arch';
+  return 'system-images/android-$apiLevel/google_apis/$arch';
 }
 
-/// Script to install Android SDK components.
-void main() async {
-  String os = Platform.operatingSystem;
-  String platformKey;
-  String sdkRoot;
-
+/// Resolves the Google Android CLI platform string.
+String getAndroidCliPlatformKey() {
+  final arch = getArchitecture() == 'arm64-v8a' ? 'arm64' : 'x86_64';
   if (Platform.isMacOS) {
-    platformKey = 'mac';
-    sdkRoot = p.join(
-      Platform.environment['HOME']!,
-      'Library',
-      'Android',
-      'Sdk',
-    );
+    return 'darwin_$arch';
   } else if (Platform.isLinux) {
-    platformKey = 'linux';
-    sdkRoot = p.join(Platform.environment['HOME']!, 'Android', 'Sdk');
-  } else if (Platform.isWindows) {
-    platformKey = 'win';
-    final localAppData = Platform.environment['LOCALAPPDATA'];
-    sdkRoot = localAppData != null
-        ? p.join(localAppData, 'Android', 'Sdk')
-        : 'C:\\Android\\Sdk';
-  } else {
-    print('Unsupported operating system: $os');
-    return;
+    return 'linux_$arch';
   }
+  return 'linux_x86_64';
+}
 
-  print('Current OS: $os (Platform key: $platformKey)');
-  print('Target SDK Root: $sdkRoot');
+/// Locates the `android` CLI executable in PATH or standard directories.
+String? findAndroidCliBinary() {
+  final home = Platform.environment['HOME'] ?? '';
+  final localBinAndroid = p.join(home, '.local', 'bin', 'android');
+
+  if (File(localBinAndroid).existsSync()) {
+    return localBinAndroid;
+  }
 
   try {
-    await installAndroidSdk(platformKey, sdkRoot);
-    await installJava();
-    await installAndroidComponents(sdkRoot);
-    await createAvd(sdkRoot, androidSystemImage);
-    await configureFlutter(sdkRoot);
-    await printSummary(sdkRoot);
-  } catch (e) {
-    print('\nAn error occurred during installation: $e');
-  }
+    final whichResult = Process.runSync('which', ['android']);
+    if (whichResult.exitCode == 0) {
+      final path = whichResult.stdout.toString().trim();
+      if (path.isNotEmpty && File(path).existsSync()) {
+        return path;
+      }
+    }
+  } catch (_) {}
+
+  return null;
 }
 
-/// Fetches, downloads, and extracts the Android Command Line Tools.
-Future<void> installAndroidSdk(String platformKey, String sdkRoot) async {
-  final wantAndroid = Confirm(
-    prompt: 'Do you want to install the Android Command Line Tools?',
-  ).interact();
-  if (!wantAndroid) return;
+void main() async {
+  print('\n${"=" * 60}');
+  print('Flutter & Android SDK Companion Manager');
+  print('=' * 60);
 
-  final url = 'https://developer.android.com/studio';
-  print('Fetching $url...');
+  final os = Platform.operatingSystem;
+  final home = Platform.environment['HOME'] ?? '';
+  String defaultSdkRoot;
 
-  final response = await http.get(Uri.parse(url));
-  if (response.statusCode != 200) {
-    print('Failed to load page: ${response.statusCode}');
-    return;
-  }
-
-  final document = parser.parse(response.body);
-  final links = document.querySelectorAll('a');
-
-  String? downloadUrl;
-  final pattern = RegExp('commandlinetools-$platformKey-.*_latest\\.zip');
-
-  for (var link in links) {
-    final href = link.attributes['href'];
-    if (href != null && pattern.hasMatch(href)) {
-      downloadUrl = href;
-      break;
-    }
-  }
-
-  if (downloadUrl == null) {
-    print('Could not find command line tools URL for $platformKey');
-    return;
-  }
-
-  print('Located command line tools URL: $downloadUrl');
-
-  final sdkRootInput = Input(
-    prompt: 'Enter the Android SDK root directory',
-    defaultValue: sdkRoot,
-  ).interact();
-  sdkRoot = sdkRootInput;
-
-  final fileName = p.basename(downloadUrl);
-  final tempDir = Directory.systemTemp.createTempSync('android_sdk_installer');
-  final zipFile = File(p.join(tempDir.path, fileName));
-
-  print('Downloading $fileName...');
-  final downloadResponse = await http.get(Uri.parse(downloadUrl));
-  if (downloadResponse.statusCode != 200) {
-    print('Failed to download file: ${downloadResponse.statusCode}');
-    return;
-  }
-  await zipFile.writeAsBytes(downloadResponse.bodyBytes);
-  print('Download complete.');
-
-  // We want to extract into $sdkRoot/cmdline-tools/latest
-  final targetPath = p.join(sdkRoot, 'cmdline-tools', 'latest');
-  print('Extracting to $targetPath...');
-
-  if (Directory(targetPath).existsSync()) {
-    print('Cleaning up existing target path: $targetPath');
-    Directory(targetPath).deleteSync(recursive: true);
-  }
-  Directory(targetPath).createSync(recursive: true);
-
-  final archive = ZipDecoder().decodeBytes(zipFile.readAsBytesSync());
-
-  for (final file in archive) {
-    final String filename = file.name;
-
-    // The zip usually has a 'cmdline-tools/' root folder.
-    // We want to strip that and put everything in $targetPath.
-    String relativePath = filename;
-    if (filename.startsWith('cmdline-tools/')) {
-      relativePath = filename.substring('cmdline-tools/'.length);
-    }
-
-    if (relativePath.isEmpty) continue;
-
-    final fullPath = p.join(targetPath, relativePath);
-
-    if (file.isFile) {
-      final outFile = File(fullPath);
-      // Explicitly create parent directories
-      outFile.parent.createSync(recursive: true);
-
-      // Use writeAsBytesSync for simplicity if files are small,
-      // or a stream for larger ones.
-      final data = file.content as List<int>;
-      outFile.writeAsBytesSync(data);
-      print('  Extracting file: $relativePath');
-    } else {
-      Directory(fullPath).createSync(recursive: true);
-      print('  Creating directory: $relativePath');
-    }
-  }
-  print('Extraction complete.');
-
-  // Cleanup
-  tempDir.deleteSync(recursive: true);
-  print('Temporary files cleaned up.');
-
-  print('\nAndroid Command Line Tools successfully installed to $targetPath');
-  print('Remember to add the following to your shell profile:');
-  print('export PATH="$targetPath/bin:\$PATH"');
-
-  await addToPath(targetPath);
-}
-
-/// Installs Android SDK components using sdkmanager.
-Future<void> installAndroidComponents(String sdkRoot) async {
-  final confirm = Confirm(
-    prompt:
-        'Do you want to install Android SDK components (NDK, Build Tools, etc.)?',
-  ).interact();
-  if (!confirm) return;
-
-  final sdkManagerPath = p.join(
-    sdkRoot,
-    'cmdline-tools',
-    'latest',
-    'bin',
-    'sdkmanager',
-  );
-  if (!File(sdkManagerPath).existsSync()) {
-    print('Error: sdkmanager not found at $sdkManagerPath');
-    return;
-  }
-
-  // Ensure sdkmanager is executable on Unix-like systems
-  if (!Platform.isWindows) {
-    final stat = File(sdkManagerPath).statSync();
-    if (!stat.modeString().contains('x')) {
-      print('sdkmanager is not executable. Setting executable bit...');
-      await Process.run('chmod', ['+x', sdkManagerPath]);
-    }
-  }
-
-  print('\nAccepting Android SDK licenses...');
-  // Running yes | sdkmanager --licenses --sdk_root=$sdkRoot
-  final licenseProcess = await Process.start('bash', [
-    '-l',
-    '-c',
-    'yes | "$sdkManagerPath" --licenses --sdk_root="$sdkRoot"',
-  ]);
-  await stdout.addStream(licenseProcess.stdout);
-  await stderr.addStream(licenseProcess.stderr);
-  await licenseProcess.exitCode;
-
-  print('\nInstalling components:');
-  print(' - NDK: $ANDROID_NDK_VERSION');
-  print(' - Build Tools: $ANDROID_BUILD_TOOLS_VERSION');
-  print(' - API: $ANDROID_API_LEVEL');
-  print(' - System Image: $androidSystemImage');
-  print(' - Cmake: $ANDROID_CMAKE_VERSION');
-  print(' - Platform Tools, Emulator');
-
-  final components = [
-    'ndk;$ANDROID_NDK_VERSION',
-    'build-tools;$ANDROID_BUILD_TOOLS_VERSION',
-    'platforms;android-$ANDROID_API_LEVEL',
-    androidSystemImage,
-    'platform-tools',
-    'emulator',
-    'cmake;$ANDROID_CMAKE_VERSION',
-  ];
-
-  // Run sdkmanager through a login shell to ensure Java (via SDKMAN etc.) is in the PATH
-  final installProcess = await Process.start('bash', [
-    '-l',
-    '-c',
-    '"$sdkManagerPath" --install --sdk_root="$sdkRoot" ${components.map((c) => '"$c"').join(' ')}',
-  ]);
-
-  await stdout.addStream(installProcess.stdout);
-  await stderr.addStream(installProcess.stderr);
-
-  final exitCode = await installProcess.exitCode;
-  if (exitCode == 0) {
-    print('\nAndroid components installed successfully.');
+  if (Platform.isMacOS) {
+    defaultSdkRoot = p.join(home, 'Library', 'Android', 'Sdk');
   } else {
-    print('\nFailed to install Android components (exit code: $exitCode).');
+    defaultSdkRoot = p.join(home, 'Android', 'Sdk');
+  }
+
+  print('Host OS: $os | Target Architecture: ${getArchitecture()}');
+  print('Default Android SDK Root: $defaultSdkRoot\n');
+
+  try {
+    final androidBin = await ensureAndroidCli();
+    if (androidBin == null) {
+      print('Android CLI setup was aborted.');
+      return;
+    }
+
+    final sdkRoot = await resolveSdkRoot(androidBin, defaultSdkRoot);
+    await checkOrInstallJava();
+    await installAndroidComponents(androidBin, sdkRoot);
+    await createOrManageAvd(androidBin);
+    await configureFlutter(sdkRoot);
+    await printSummary(androidBin, sdkRoot);
+  } catch (e, stack) {
+    print('\nAn error occurred: $e');
+    print(stack);
   }
 }
 
-/// Installs Java using SDKMAN if requested.
-Future<void> installJava() async {
-  final wantJava = Confirm(prompt: 'Do you want to install Java?').interact();
+/// Ensures the Google Android CLI is installed and returns its path.
+Future<String?> ensureAndroidCli() async {
+  String? androidBin = findAndroidCliBinary();
+
+  if (androidBin != null) {
+    print('Found Google Android CLI: $androidBin');
+    return androidBin;
+  }
+
+  final installCli = Confirm(
+    prompt: 'Google Android CLI is not installed. Do you want to install it now?',
+    defaultValue: true,
+  ).interact();
+
+  if (!installCli) return null;
+
+  final home = Platform.environment['HOME']!;
+  final localBinDir = p.join(home, '.local', 'bin');
+  final targetBin = p.join(localBinDir, 'android');
+  final platformKey = getAndroidCliPlatformKey();
+  final cliUrl = 'https://dl.google.com/android/cli/latest/$platformKey/android';
+
+  print('Downloading Android CLI from $cliUrl...');
+  Directory(localBinDir).createSync(recursive: true);
+
+  final result = await Process.run('curl', ['-fsSL', cliUrl, '-o', targetBin]);
+  if (result.exitCode != 0) {
+    print('Failed to download Android CLI: ${result.stderr}');
+    return null;
+  }
+
+  await Process.run('chmod', ['+x', targetBin]);
+  print('Initializing Android CLI...');
+  await Process.run(targetBin, ['init']);
+
+  print('Android CLI successfully installed at $targetBin\n');
+  return targetBin;
+}
+
+/// Resolves the SDK root via Android CLI or user input.
+Future<String> resolveSdkRoot(String androidBin, String defaultSdkRoot) async {
+  String sdkRoot = defaultSdkRoot;
+
+  try {
+    final infoResult = await Process.run(androidBin, ['info']);
+    if (infoResult.exitCode == 0) {
+      final lines = infoResult.stdout.toString().split('\n');
+      for (final line in lines) {
+        if (line.startsWith('sdk:')) {
+          final detected = line.substring(4).trim();
+          if (detected.isNotEmpty) {
+            sdkRoot = detected;
+            break;
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  return sdkRoot;
+}
+
+/// Verifies Java >= 17 is available or prompts to install via SDKMAN.
+Future<void> checkOrInstallJava() async {
+  bool javaValid = false;
+
+  try {
+    final javaResult = await Process.run('java', ['-version']);
+    if (javaResult.exitCode == 0) {
+      final raw = javaResult.stderr.toString();
+      final match = RegExp(r'version "([0-9]+)').firstMatch(raw);
+      if (match != null) {
+        final major = int.tryParse(match.group(1)!) ?? 0;
+        if (major >= javaVersionMinimum) {
+          javaValid = true;
+          print('Detected compatible Java version ($major) in PATH.');
+        }
+      }
+    }
+  } catch (_) {}
+
+  if (javaValid) return;
+
+  final wantJava = Confirm(
+    prompt: 'Java >= 17 was not detected. Do you want to install Java 17 via SDKMAN?',
+    defaultValue: true,
+  ).interact();
+
   if (!wantJava) return;
 
   final home = Platform.environment['HOME']!;
   final sdkmanDir = p.join(home, '.sdkman');
   final sdkmanInit = p.join(sdkmanDir, 'bin', 'sdkman-init.sh');
-  bool sdkmanExists = File(sdkmanInit).existsSync();
 
-  if (!sdkmanExists) {
-    print('SDKMAN not found. Installing SDKMAN...');
-    // curl -s "https://get.sdkman.io" | bash
-    final installProcess = await Process.start('bash', [
-      '-c',
-      'curl -s "https://get.sdkman.io" | bash',
-    ]);
-    stdout.addStream(installProcess.stdout);
-    stderr.addStream(installProcess.stderr);
-
-    final exitCode = await installProcess.exitCode;
-    if (exitCode != 0) {
-      print('Failed to install SDKMAN.');
-      return;
-    }
-    print('SDKMAN installed successfully.');
-    sdkmanExists = true;
+  if (!File(sdkmanInit).existsSync()) {
+    print('Installing SDKMAN...');
+    final p1 = await Process.start('bash', ['-c', 'curl -s "https://get.sdkman.io?rcupdate=false" | bash']);
+    await stdout.addStream(p1.stdout);
+    await stderr.addStream(p1.stderr);
+    await p1.exitCode;
   }
 
-  print('Querying available Java versions from SDKMAN...');
-  final listResult = await Process.run('bash', [
+  print('Installing Amazon Corretto 17 via SDKMAN...');
+  final p2 = await Process.start('bash', [
     '-c',
-    'source $sdkmanInit && sdk ls java',
+    'export sdkman_auto_answer=true && source $sdkmanInit && sdk install java 17.0.12-amzn || sdk install java 17-amzn',
   ]);
-
-  if (listResult.exitCode != 0) {
-    print('Failed to list Java versions: ${listResult.stderr}');
-    return;
-  }
-
-  final output = listResult.stdout as String;
-  final lines = output.split('\n');
-  final amznVersions = <String>[];
-
-  // Parse identifiers ending in amzn
-  for (var line in lines) {
-    if (line.contains('amzn') && line.contains('|')) {
-      final parts = line.split('|').map((e) => e.trim()).toList();
-      if (parts.length >= 6) {
-        final identifier = parts[5]; // The Identifier column
-        if (identifier.endsWith('amzn')) {
-          amznVersions.add(identifier);
-        }
-      }
-    }
-  }
-
-  if (amznVersions.isEmpty) {
-    print('Could not find any Amazon Corretto Java versions in SDKMAN output.');
-    return;
-  }
-
-  amznVersions.sort((a, b) => b.compareTo(a));
-
-  final displayVersion = JAVA_VERSION_PREFERENCE.replaceAll('.', '');
-  print(
-    '\nRecommendation: Java $displayVersion (e.g., ${JAVA_VERSION_PREFERENCE}x.x-amzn)',
-  );
-
-  // Find the preferred Java version to recommend
-  final preferredIndex = amznVersions.indexWhere(
-    (v) => v.startsWith(JAVA_VERSION_PREFERENCE),
-  );
-
-  final selectionIndex = Select(
-    prompt: 'Which version of Java would you like to install?',
-    options: amznVersions,
-    initialIndex: preferredIndex != -1 ? preferredIndex : 0,
-  ).interact();
-
-  final selectedVersion = amznVersions[selectionIndex];
-  print('Installing Java $selectedVersion...');
-
-  final installProcess = await Process.start('bash', [
-    '-c',
-    'source $sdkmanInit && sdk i java $selectedVersion',
-  ]);
-
-  stdout.addStream(installProcess.stdout);
-  stderr.addStream(installProcess.stderr);
-
-  final exitCode = await installProcess.exitCode;
-  if (exitCode == 0) {
-    print('\nJava $selectedVersion installed successfully via SDKMAN.');
-  } else {
-    print('\nFailed to install Java $selectedVersion.');
-  }
+  await stdout.addStream(p2.stdout);
+  await stderr.addStream(p2.stderr);
+  await p2.exitCode;
 }
 
-/// Adds the SDK bin directory to the system PATH.
-Future<void> addToPath(String targetPath) async {
-  if (Platform.isWindows) {
-    print('\nAutomatic PATH configuration is not yet supported on Windows.');
-    print(
-      'Please add "$targetPath/bin" to your Environment Variables manually.',
-    );
-    return;
-  }
-
-  final confirm = Confirm(
-    prompt: 'Do you want to add the Android SDK to your PATH?',
-  ).interact();
-  if (!confirm) return;
-
-  final home = Platform.environment['HOME'];
-  if (home == null) {
-    print('Could not find HOME environment variable.');
-    return;
-  }
-
-  // Identify shell profile
-  final shell = Platform.environment['SHELL'] ?? '';
-  String profileName;
-  if (shell.contains('zsh')) {
-    profileName = '.zshrc';
-  } else if (Platform.isMacOS) {
-    profileName = '.bash_profile';
-  } else {
-    profileName = '.bashrc';
-  }
-
-  final profilePath = p.join(home, profileName);
-  final exportCmd =
-      '''
-
-# Android SDK Command Line Tools
-export PATH="$targetPath/bin:\$PATH"
-''';
-
-  try {
-    final profileFile = File(profilePath);
-    if (!profileFile.existsSync()) {
-      print('Creating new profile: $profilePath');
-      profileFile.createSync();
-    }
-
-    final content = profileFile.readAsStringSync();
-    if (content.contains(targetPath)) {
-      print('Path already exists in $profileName.');
-    } else {
-      profileFile.writeAsStringSync(exportCmd, mode: FileMode.append);
-      print(
-        'Successfully added to $profilePath. Please restart your terminal or run:',
-      );
-      print('source ~/$profileName');
-    }
-  } catch (e) {
-    print('Failed to update $profileName: $e');
-  }
-}
-
-/// Prompts the user to create an AVD.
-Future<void> createAvd(String sdkRoot, String systemImage) async {
-  final wantAvd = Confirm(
-    prompt: 'Do you want to create an Android Virtual Device (AVD)?',
-  ).interact();
-  if (!wantAvd) return;
-
-  final home = Platform.isWindows
-      ? Platform.environment['USERPROFILE']
-      : Platform.environment['HOME'];
-
-  if (home == null) {
-    print('Could not find home directory to locate AVDs.');
-    return;
-  }
-
-  final avdDir = p.join(home, '.android', 'avd');
-
-  if (Directory(avdDir).existsSync()) {
-    final contents = Directory(avdDir).listSync();
-    if (contents.isNotEmpty) {
-      print(
-        '\nAn AVD already appears to exist at $avdDir. Skipping AVD creation to avoid conflicts.',
-      );
-      return;
-    }
-  }
-
-  final avdName = Input(
-    prompt: 'Enter a name for the new AVD',
-    defaultValue: 'Pixel_9_API_36',
+/// Installs Android SDK packages using the official Android CLI.
+Future<void> installAndroidComponents(String androidBin, String sdkRoot) async {
+  final wantComponents = Confirm(
+    prompt: 'Install/update Android SDK components (platforms, build-tools, emulator)?',
+    defaultValue: true,
   ).interact();
 
-  final avdManagerPath = p.join(
-    sdkRoot,
-    'cmdline-tools',
-    'latest',
-    'bin',
-    'avdmanager',
-  );
-  if (!File(avdManagerPath).existsSync()) {
-    print('Error: avdmanager not found at $avdManagerPath');
-    return;
-  }
+  if (!wantComponents) return;
 
-  // Ensure avdmanager is executable on Unix-like systems
-  if (!Platform.isWindows) {
-    final stat = File(avdManagerPath).statSync();
-    if (!stat.modeString().contains('x')) {
-      print('avdmanager is not executable. Setting executable bit...');
-      await Process.run('chmod', ['+x', avdManagerPath]);
-    }
-  }
+  final availableApis = ['35', '36', '34'];
+  final selectedIndex = Select(
+    prompt: 'Select target Android API level:',
+    options: availableApis.map((a) => 'Android API $a (recommended: $defaultAndroidApiLevel)').toList(),
+    initialIndex: 0,
+  ).interact();
 
-  print('\nCreating AVD: $avdName...');
-  // echo "no" | avdmanager create avd --name "$avdName" --package "$systemImage" --device "pixel_9"
-  // Using pixel_9 as a reliable hardware profile
-  final process = await Process.start('bash', [
-    '-l',
-    '-c',
-    'echo "no" | "$avdManagerPath" create avd --name "$avdName" --package "$systemImage" --device "pixel_9"',
+  final chosenApi = availableApis[selectedIndex];
+  final buildToolsVer = chosenApi == '36' ? '36.0.0' : '35.0.0';
+  final systemImage = getAndroidSystemImage(chosenApi);
+
+  print('\nInstalling components via Android CLI:');
+  print(' - Platform:     platforms/android-$chosenApi');
+  print(' - Build Tools:  build-tools/$buildToolsVer');
+  print(' - System Image: $systemImage');
+  print(' - Tools:        platform-tools, emulator\n');
+
+  final process = await Process.start(androidBin, [
+    'sdk',
+    'install',
+    'platforms/android-$chosenApi',
+    'build-tools/$buildToolsVer',
+    'platform-tools',
+    'emulator',
+    systemImage,
   ]);
 
   await stdout.addStream(process.stdout);
   await stderr.addStream(process.stderr);
   final exitCode = await process.exitCode;
 
-  if (exitCode != 0) {
-    print('Failed to create AVD (exit code: $exitCode).');
-    return;
+  if (exitCode == 0) {
+    print('\nAndroid components installed successfully.');
+  } else {
+    print('\nInstallation exited with code: $exitCode');
+  }
+}
+
+/// Manages or creates an Android Virtual Device using Android CLI.
+Future<void> createOrManageAvd(String androidBin) async {
+  final listResult = await Process.run(androidBin, ['emulator', 'list']);
+  final existingList = listResult.stdout.toString().trim();
+
+  if (existingList.isNotEmpty) {
+    print('\nExisting Android Virtual Devices:');
+    for (final line in existingList.split('\n')) {
+      if (line.trim().isNotEmpty) print('  • $line');
+    }
+
+    final createAnother = Confirm(
+      prompt: 'Do you want to create an additional Android Virtual Device?',
+      defaultValue: false,
+    ).interact();
+
+    if (!createAnother) return;
   }
 
-  print('\nAVD $avdName created successfully.');
+  // Fetch available profiles
+  final profilesResult = await Process.run(androidBin, ['emulator', 'create', '--list-profiles']);
+  List<String> profiles = ['medium_phone', 'small_phone', 'medium_desktop', 'medium_tablet'];
+  if (profilesResult.exitCode == 0) {
+    final parsed = profilesResult.stdout
+        .toString()
+        .split('\n')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty && !s.contains('version') && !s.contains('update'))
+        .toList();
+    if (parsed.isNotEmpty) profiles = parsed;
+  }
+
+  final profileIndex = Select(
+    prompt: 'Select device profile for the AVD:',
+    options: profiles,
+    initialIndex: profiles.contains('medium_phone') ? profiles.indexOf('medium_phone') : 0,
+  ).interact();
+
+  final selectedProfile = profiles[profileIndex];
+  print('\nCreating virtual device with profile: $selectedProfile...');
+
+  final createProcess = await Process.start(androidBin, ['emulator', 'create', selectedProfile]);
+  await stdout.addStream(createProcess.stdout);
+  await stderr.addStream(createProcess.stderr);
+  await createProcess.exitCode;
 
   // Enable hardware keyboard
-  // We check both config.ini and hardware-qemu.ini as per user notes and standard practice
-  final avdFolderPath = p.join(avdDir, '$avdName.avd');
-  final configFiles = [
-    p.join(avdFolderPath, 'config.ini'),
-    p.join(avdFolderPath, 'hardware-qemu.ini'),
-  ];
-
-  for (final filePath in configFiles) {
-    final file = File(filePath);
-    if (file.existsSync()) {
-      print('Enabling hardware keyboard in $filePath...');
-      final lines = file.readAsLinesSync();
-      bool updated = false;
-      final newLines = lines.map((line) {
-        if (line.trim().startsWith('hw.keyboard')) {
-          updated = true;
-          return 'hw.keyboard=yes';
-        }
-        return line;
-      }).toList();
-
-      if (!updated) {
-        newLines.add('hw.keyboard=yes');
-      }
-      file.writeAsStringSync(newLines.join('\n'));
-    }
-  }
-}
-
-/// Informs Flutter of the Android SDK location.
-Future<void> configureFlutter(String sdkRoot) async {
-  final wantFlutter = Confirm(
-    prompt: 'Do you want to configure Flutter with the new Android SDK path?',
-  ).interact();
-  if (!wantFlutter) return;
-
-  try {
-    print('\nChecking Flutter status...');
-    final doctorProcess = await Process.start('bash', [
-      '-l',
-      '-c',
-      'flutter doctor',
-    ]);
-    await stdout.addStream(doctorProcess.stdout);
-    await stderr.addStream(doctorProcess.stderr);
-    await doctorProcess.exitCode;
-
-    print('\nConfiguring Flutter Android SDK path...');
-    final configProcess = await Process.start('bash', [
-      '-l',
-      '-c',
-      'flutter config --android-sdk "$sdkRoot"',
-    ]);
-    await stdout.addStream(configProcess.stdout);
-    await stderr.addStream(configProcess.stderr);
-
-    final exitCode = await configProcess.exitCode;
-    if (exitCode == 0) {
-      print('\nFlutter successfully configured with Android SDK at $sdkRoot');
-    } else {
-      print('\nFailed to configure Flutter (exit code: $exitCode)');
-    }
-  } on ProcessException catch (e) {
-    print('\nCould not find the "flutter" command in your PATH: ${e.message}');
-    print(
-      'Please ensure Flutter is installed and added to your PATH, then run:',
-    );
-    print('  flutter config --android-sdk $sdkRoot');
-  } catch (e) {
-    print('\nAn unexpected error occurred while configuring Flutter: $e');
-  }
-}
-
-/// Prints a summary of the installation and environment.
-Future<void> printSummary(String sdkRoot) async {
-  print('\n' + '=' * 60);
-  print('INSTALLATION SUMMARY');
-  print('=' * 60);
-
-  print('\nAndroid SDK Location: $sdkRoot');
-
-  // Check Java version
-  try {
-    final javaProcess = await Process.run('java', ['-version']);
-    final javaVersion = javaProcess.stderr.toString().split('\n').first;
-    print('Java Version: $javaVersion');
-  } catch (_) {
-    print('Java Version: Not found in PATH');
-  }
-
-  // Check AVDs
-  final avdManagerPath = p.join(
-    sdkRoot,
-    'cmdline-tools',
-    'latest',
-    'bin',
-    'avdmanager',
-  );
-  if (File(avdManagerPath).existsSync()) {
-    print('\nAvailable Android Virtual Devices (AVDs):');
-    try {
-      // Ensure avdmanager is executable
-      if (!Platform.isWindows) {
-        await Process.run('chmod', ['+x', avdManagerPath]);
-      }
-      final avdProcess = await Process.run('bash', [
-        '-l',
-        '-c',
-        '"$avdManagerPath" list avd',
-      ]);
-      if (avdProcess.exitCode == 0) {
-        final output = avdProcess.stdout.toString();
-        final names = RegExp(
-          r'Name: (.*)',
-        ).allMatches(output).map((m) => m.group(1)).toList();
-        if (names.isEmpty) {
-          print('  (No AVDs created yet)');
-        } else {
-          for (final name in names) {
-            print('  - $name');
+  final home = Platform.environment['HOME']!;
+  final avdDir = p.join(home, '.android', 'avd');
+  if (Directory(avdDir).existsSync()) {
+    for (final entry in Directory(avdDir).listSync()) {
+      if (entry is Directory && entry.path.endsWith('.avd')) {
+        final configFile = File(p.join(entry.path, 'config.ini'));
+        if (configFile.existsSync()) {
+          final content = configFile.readAsStringSync();
+          if (content.contains('hw.keyboard')) {
+            configFile.writeAsStringSync(content.replaceAll(RegExp(r'hw\.keyboard\s*=\s*.*'), 'hw.keyboard=yes'));
+          } else {
+            configFile.writeAsStringSync('$content\nhw.keyboard=yes\n');
           }
         }
       }
-    } catch (e) {
-      print('  Error listing AVDs: $e');
     }
   }
+}
 
-  print('\nNext Steps:');
-  print('1. To see all available emulators, run:');
-  print('   flutter emulators');
-  print('\n2. To launch an Android emulator, run:');
-  print('   flutter emulators --launch <AVD_NAME>');
-  print('   (Example: flutter emulators --launch Pixel_10_API_36)');
+/// Configures Flutter to use the Android SDK and accepts licenses.
+Future<void> configureFlutter(String sdkRoot) async {
+  final configure = Confirm(
+    prompt: 'Configure Flutter Android SDK path and verify licenses?',
+    defaultValue: true,
+  ).interact();
 
-  print('\n3. To run your Flutter app on the emulator:');
-  print('   flutter run');
+  if (!configure) return;
 
-  print('\n' + '=' * 60);
-  print('Happy Coding!');
+  try {
+    print('\nConfiguring Flutter Android SDK path: $sdkRoot');
+    await Process.run('flutter', ['config', '--android-sdk', sdkRoot]);
+
+    print('Verifying Android licenses...');
+    final licenseProcess = await Process.start('bash', ['-c', 'yes | flutter doctor --android-licenses']);
+    await stdout.addStream(licenseProcess.stdout);
+    await stderr.addStream(licenseProcess.stderr);
+    await licenseProcess.exitCode;
+
+    print('\nRunning flutter doctor...');
+    final doctor = await Process.start('flutter', ['doctor']);
+    await stdout.addStream(doctor.stdout);
+    await stderr.addStream(doctor.stderr);
+    await doctor.exitCode;
+  } catch (e) {
+    print('Flutter configuration notice: $e');
+  }
+}
+
+/// Prints summary of the installation.
+Future<void> printSummary(String androidBin, String sdkRoot) async {
+  print('\n${"=" * 60}');
+  print('SETUP SUMMARY');
+  print('=' * 60);
+  print('Android SDK: $sdkRoot');
+  print('Android CLI: $androidBin');
+
+  try {
+    final list = await Process.run(androidBin, ['emulator', 'list']);
+    print('\nConfigured Emulators:');
+    print(list.stdout.toString().trim());
+  } catch (_) {}
+
+  print('\nQuick Start:');
+  print('1. Launch an emulator:  flutter emulators --launch <name>');
+  print('2. Run Flutter app:     flutter run');
   print('=' * 60 + '\n');
 }
