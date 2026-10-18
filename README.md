@@ -59,18 +59,21 @@ LOCAL_BIN_DIR="$HOME/.local/bin" \
 
 ---
 
-## 🛠️ Interactive Companion Manager
+## 🖥️ Flutter Desktop Studio GUI
 
-Once Flutter is installed, you can use the Dart companion CLI anytime to manage your Android development environment:
+Once Flutter is installed, launch the visual **Android SDK Studio** desktop app (built with Flutter Desktop and `signals.dart`):
 
 ```bash
-dart run lib/android_sdk_installer.dart
+flutter run
 ```
 
 Features:
-- **Interactive Component Management**: Choose and install specific Android API levels (34, 35, 36) and build-tools via Google's `android sdk install`.
-- **AVD Profile Selector**: Browse hardware profiles (`medium_phone`, `small_phone`, `medium_desktop`, etc.) and spin up emulators on demand.
-- **Environment Diagnostics**: Query active SDK configurations, connected devices, and verify `flutter doctor` health.
+- **📊 System Health Dashboard**: Real-time status cards for Flutter SDK, Java Runtime (JDK 17), and Google Android CLI / SDK Root.
+- **📦 Visual Package Manager**: Browse, install, and update Android API platforms (34, 35, 36), Build-Tools, and System Images with one click.
+- **📱 AVD Studio**: Manage emulators, create new virtual devices with custom hardware profiles, and launch emulators directly from the UI.
+- **🩺 1-Click Diagnostics & Doctor**: Run `flutter doctor` diagnostics, accept licenses non-interactively, and re-link SDK paths.
+- **⚡ Live Process Console**: Collapsible bottom console drawer with real-time streaming stdout/stderr execution logs.
+- **🌗 Theme Toggle**: Built-in Material 3 Light and Dark mode switching.
 
 ---
 
