@@ -30,7 +30,7 @@ class StudioShell extends SignalWidget {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.flutter_dash, color: Colors.blue),
+            const FlutterLogo(),
             const SizedBox(width: 8),
             const Flexible(
               child: Text(
