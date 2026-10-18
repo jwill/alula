@@ -173,7 +173,10 @@ class AvdStudioTab extends SignalWidget {
       color: theme.colorScheme.surfaceContainerLow,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: theme.colorScheme.outlineVariant),
+        side: BorderSide(
+          color: avd.isRunning ? Colors.green.withValues(alpha: 0.5) : theme.colorScheme.outlineVariant,
+          width: avd.isRunning ? 1.5 : 1,
+        ),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -184,8 +187,11 @@ class AvdStudioTab extends SignalWidget {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: theme.colorScheme.primaryContainer,
-                  child: Icon(deviceIcon, color: theme.colorScheme.onPrimaryContainer),
+                  backgroundColor: avd.isRunning ? Colors.green.withValues(alpha: 0.15) : theme.colorScheme.primaryContainer,
+                  child: Icon(
+                    deviceIcon,
+                    color: avd.isRunning ? Colors.green : theme.colorScheme.onPrimaryContainer,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -210,11 +216,20 @@ class AvdStudioTab extends SignalWidget {
             Row(
               children: [
                 Expanded(
-                  child: FilledButton.icon(
-                    onPressed: isBusy ? null : () => appSignals.launchAvd(avd.name),
-                    icon: const Icon(Icons.play_arrow, size: 16),
-                    label: const Text('Launch'),
-                  ),
+                  child: avd.isRunning
+                      ? OutlinedButton.icon(
+                          onPressed: null,
+                          icon: const Icon(Icons.check_circle, size: 16, color: Colors.green),
+                          label: Text(
+                            avd.pid != null ? 'Running (PID: ${avd.pid})' : 'Running',
+                            style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                          ),
+                        )
+                      : FilledButton.icon(
+                          onPressed: isBusy ? null : () => appSignals.launchAvd(avd.name),
+                          icon: const Icon(Icons.play_arrow, size: 16),
+                          label: const Text('Launch'),
+                        ),
                 ),
               ],
             ),

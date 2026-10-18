@@ -264,9 +264,36 @@ class SystemService {
     );
   }
 
-  /// Lists configured Android Virtual Devices.
+  /// Detects running Android emulator processes and returns a map of {avdName: pid}.
+  Future<Map<String, int>> getRunningAvdPids() async {
+    final running = <String, int>{};
+    try {
+      final result = await Process.run('ps', ['-eo', 'pid,command'], runInShell: true);
+      if (result.exitCode == 0) {
+        final lines = result.stdout.toString().split('\n');
+        for (final line in lines) {
+          if (!line.contains('qemu-system') && !line.contains('emulator')) continue;
+          if (line.contains('grep')) continue;
+
+          final match = RegExp(r'^\s*(\d+)\s+.*?(?:-avd\s+|@)([a-zA-Z0-9_\-\.]+)').firstMatch(line);
+          if (match != null) {
+            final pid = int.tryParse(match.group(1)!);
+            final avdName = match.group(2)!;
+            if (pid != null) {
+              running[avdName] = pid;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return running;
+  }
+
+  /// Lists configured Android Virtual Devices with their active running status and PID.
   Future<List<AvdItem>> listAvds() async {
     final avds = <AvdItem>[];
+    final runningPids = await getRunningAvdPids();
+
     try {
       final result = await Process.run('android', ['emulator', 'list'], runInShell: true);
       if (result.exitCode == 0) {
@@ -274,11 +301,42 @@ class SystemService {
         for (final line in lines) {
           final clean = line.trim();
           if (clean.isNotEmpty && !clean.contains('warning') && !clean.contains('update')) {
-            avds.add(AvdItem(name: clean));
+            final pid = runningPids[clean];
+            avds.add(AvdItem(
+              name: clean,
+              isRunning: pid != null,
+              pid: pid,
+            ));
           }
         }
       }
     } catch (_) {}
+
+    // Fallback to flutter emulators if android CLI emulator list returned nothing
+    if (avds.isEmpty) {
+      try {
+        final flutterResult = await Process.run('flutter', ['emulators'], runInShell: true);
+        if (flutterResult.exitCode == 0) {
+          final lines = flutterResult.stdout.toString().split('\n');
+          for (final line in lines) {
+            if (line.contains('•') && !line.contains('available emulators')) {
+              final parts = line.split('•');
+              if (parts.isNotEmpty) {
+                final id = parts[0].trim();
+                if (id.isNotEmpty && id != 'Id') {
+                  final pid = runningPids[id];
+                  avds.add(AvdItem(
+                    name: id,
+                    isRunning: pid != null,
+                    pid: pid,
+                  ));
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
 
     return avds;
   }
@@ -332,11 +390,39 @@ class SystemService {
     return packages;
   }
 
-  /// Launches an emulator via flutter emulators --launch.
-  Future<bool> launchEmulator(String name) async {
-    log('Launching emulator: $name...');
-    final code = await runCommand('flutter', ['emulators', '--launch', name]);
-    return code == 0;
+  /// Launches an emulator via flutter emulators --launch in the background,
+  /// adds a delay to give the process time to launch, and captures the PID.
+  Future<int?> launchEmulator(String name) async {
+    log('Launching emulator: $name in background...');
+    int? launcherPid;
+    try {
+      final res = await Process.run(
+        'bash',
+        ['-c', 'flutter emulators --launch "$name" & echo \$!'],
+        runInShell: true,
+      );
+      if (res.exitCode == 0) {
+        final out = res.stdout.toString().trim();
+        final match = RegExp(r'\d+').firstMatch(out);
+        if (match != null) {
+          launcherPid = int.tryParse(match.group(0)!);
+        }
+      }
+    } catch (e) {
+      log('[ERROR] Failed to start emulator: $e');
+    }
+
+    log('Waiting 2 seconds for emulator process to initialize...');
+    await Future.delayed(const Duration(seconds: 2));
+
+    final running = await getRunningAvdPids();
+    final actualPid = running[name] ?? launcherPid;
+    if (actualPid != null) {
+      log('Emulator "$name" is active (PID: $actualPid).');
+    } else {
+      log('Emulator "$name" launched.');
+    }
+    return actualPid;
   }
 
   /// Creates a virtual device via android emulator create.

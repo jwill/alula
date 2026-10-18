@@ -47,5 +47,36 @@ void main() {
     expect(find.text('CLI Version: 1.0.15985488'), findsOneWidget);
     expect(find.text('/home/jwill/Android/Sdk'), findsOneWidget);
   });
+
+  testWidgets('Dashboard and AVD Studio flag running AVDs with PID', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    final systemService = SystemService();
+    final appSignals = AppSignals(systemService: systemService);
+
+    appSignals.avdsList.value = const [
+      AvdItem(name: 'small_desktop', isRunning: true, pid: 3723363),
+      AvdItem(name: 'Pixel_9a', isRunning: false),
+    ];
+
+    await tester.pumpWidget(AndroidSdkStudioApp(appSignals: appSignals));
+    await tester.pump();
+
+    // Verify on Dashboard
+    expect(find.text('small_desktop'), findsOneWidget);
+    expect(find.text('PID 3723363'), findsOneWidget);
+    expect(find.text('Active emulator session (PID: 3723363)'), findsOneWidget);
+
+    // Switch to Emulators tab (index 2)
+    appSignals.activeTab.value = 2;
+    await tester.pump();
+
+    // Verify on Emulators tab
+    expect(find.text('Running (PID: 3723363)'), findsOneWidget);
+    expect(find.text('HW Keyboard: Yes'), findsNWidgets(2));
+  });
 }
+
 

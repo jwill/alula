@@ -41,7 +41,7 @@ class DashboardTab extends SignalWidget {
                         child: _buildHealthCard(
                           context,
                           title: 'Flutter SDK',
-                          icon: Icons.flutter_dash,
+                          icon: const FlutterLogo(),
                           status: flutter.status,
                           line1: 'Version: ${flutter.version} (${flutter.channel})',
                           line2: flutter.path.isNotEmpty ? flutter.path : 'Searching PATH...',
@@ -84,7 +84,7 @@ class DashboardTab extends SignalWidget {
                   _buildHealthCard(
                     context,
                     title: 'Flutter SDK',
-                    icon: Icons.flutter_dash,
+                    icon: const FlutterLogo(size: 24),
                     status: flutter.status,
                     line1: 'Version: ${flutter.version} (${flutter.channel})',
                     line2: flutter.path.isNotEmpty ? flutter.path : 'Searching PATH...',
@@ -213,14 +213,70 @@ class DashboardTab extends SignalWidget {
                 itemBuilder: (context, index) {
                   final avd = avds[index];
                   return ListTile(
-                    leading: const Icon(Icons.smartphone),
-                    title: Text(avd.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('Profile: ${avd.profile} | API Level: ${avd.apiLevel}'),
-                    trailing: FilledButton.tonalIcon(
-                      onPressed: isBusy ? null : () => appSignals.launchAvd(avd.name),
-                      icon: const Icon(Icons.play_arrow, size: 16),
-                      label: const Text('Launch'),
+                    leading: CircleAvatar(
+                      backgroundColor: avd.isRunning ? Colors.green.withValues(alpha: 0.15) : theme.colorScheme.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.smartphone,
+                        color: avd.isRunning ? Colors.green : theme.colorScheme.primary,
+                      ),
                     ),
+                    title: Row(
+                      children: [
+                        Text(avd.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        if (avd.isRunning) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  avd.pid != null ? 'PID ${avd.pid}' : 'Running',
+                                  style: const TextStyle(
+                                    color: Colors.green,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    subtitle: Text(
+                      avd.isRunning
+                          ? 'Active emulator session (PID: ${avd.pid ?? 'Active'})'
+                          : 'Profile: ${avd.profile} | API Level: ${avd.apiLevel}',
+                    ),
+                    trailing: avd.isRunning
+                        ? Chip(
+                            avatar: const Icon(Icons.check, size: 14, color: Colors.green),
+                            label: Text(
+                              avd.pid != null ? 'PID: ${avd.pid}' : 'Running',
+                              style: const TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                            backgroundColor: Colors.green.withValues(alpha: 0.1),
+                            side: BorderSide.none,
+                          )
+                        : FilledButton.tonalIcon(
+                            onPressed: isBusy ? null : () => appSignals.launchAvd(avd.name),
+                            icon: const Icon(Icons.play_arrow, size: 16),
+                            label: const Text('Launch'),
+                          ),
                   );
                 },
               ),
@@ -233,7 +289,7 @@ class DashboardTab extends SignalWidget {
   Widget _buildHealthCard(
     BuildContext context, {
     required String title,
-    required IconData icon,
+    required dynamic icon,
     required ToolStatus status,
     required String line1,
     String? extraLine,
@@ -278,7 +334,10 @@ class DashboardTab extends SignalWidget {
           children: [
             Row(
               children: [
-                Icon(icon, color: theme.colorScheme.primary),
+                if (icon is Widget)
+                  icon
+                else if (icon is IconData)
+                  Icon(icon, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(

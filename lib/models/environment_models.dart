@@ -108,13 +108,31 @@ class AvdItem {
   final String profile;
   final String apiLevel;
   final bool isRunning;
+  final int? pid;
 
   const AvdItem({
     required this.name,
     this.profile = 'medium_phone',
     this.apiLevel = '35',
     this.isRunning = false,
+    this.pid,
   });
+
+  AvdItem copyWith({
+    String? name,
+    String? profile,
+    String? apiLevel,
+    bool? isRunning,
+    int? pid,
+  }) {
+    return AvdItem(
+      name: name ?? this.name,
+      profile: profile ?? this.profile,
+      apiLevel: apiLevel ?? this.apiLevel,
+      isRunning: isRunning ?? this.isRunning,
+      pid: pid ?? this.pid,
+    );
+  }
 }
 
 class SdkPackageItem {

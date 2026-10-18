@@ -64,8 +64,12 @@ class AppSignals {
   Future<void> launchAvd(String avdName) async {
     isBusy.value = true;
     busyMessage.value = 'Launching $avdName...';
-    await systemService.launchEmulator(avdName);
-    isBusy.value = false;
+    try {
+      await systemService.launchEmulator(avdName);
+      avdsList.value = await systemService.listAvds();
+    } finally {
+      isBusy.value = false;
+    }
   }
 
   Future<void> createAvd(String profile) async {
