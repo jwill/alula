@@ -8,7 +8,7 @@ curl -fsSL https://raw.githubusercontent.com/<user>/android_sdk_installer/main/i
 
 ---
 
-## ⚡ The 5-Minute Setup
+## The 5-Minute Setup
 
 Instead of downloading 1.5 GB of Android Studio just to get an Android emulator, or manually hunting down Google's command-line tools zip and wrestling with directory hierarchies:
 
@@ -26,7 +26,7 @@ This installer leverages Google's official **Android CLI** and Google Cloud Stor
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ### 1. The 1-Click Command (Zero Dependencies)
 Run directly in your terminal (Linux, macOS, or WSL):
@@ -59,7 +59,7 @@ LOCAL_BIN_DIR="$HOME/.local/bin" \
 
 ---
 
-## 🖥️ Flutter Desktop Studio GUI
+## Flutter Desktop Studio GUI
 
 Once Flutter is installed, launch the visual **Android SDK Studio** desktop app (built with Flutter Desktop and `signals.dart`):
 
@@ -68,16 +68,16 @@ flutter run
 ```
 
 Features:
-- **📊 System Health Dashboard**: Real-time status cards for Flutter SDK, Java Runtime (JDK 17), and Google Android CLI / SDK Root.
-- **📦 Visual Package Manager**: Browse, install, and update Android API platforms (34, 35, 36), Build-Tools, and System Images with one click.
-- **📱 AVD Studio**: Manage emulators, create new virtual devices with custom hardware profiles, and launch emulators directly from the UI.
-- **🩺 1-Click Diagnostics & Doctor**: Run `flutter doctor` diagnostics, accept licenses non-interactively, and re-link SDK paths.
-- **⚡ Live Process Console**: Collapsible bottom console drawer with real-time streaming stdout/stderr execution logs.
-- **🌗 Theme Toggle**: Built-in Material 3 Light and Dark mode switching.
+- **System Health Dashboard**: Real-time status cards for Flutter SDK, Java Runtime (JDK 17), and Google Android CLI / SDK Root.
+- **Visual Package Manager**: Browse, install, and update Android API platforms (34, 35, 36), Build-Tools, and System Images with one click.
+- **AVD Studio**: Manage emulators, create new virtual devices with custom hardware profiles, and launch emulators directly from the UI.
+- **1-Click Diagnostics & Doctor**: Run `flutter doctor` diagnostics, accept licenses non-interactively, and re-link SDK paths.
+- **Live Process Console**: Collapsible bottom console drawer with real-time streaming stdout/stderr execution logs.
+- **Theme Toggle**: Built-in Material 3 Light and Dark mode switching.
 
 ---
 
-## 🧪 Testing & Clean-Room Verification
+## Testing & Clean-Room Verification
 
 To test the installer safely on a machine that already has Flutter or Android installed without altering any host files or configuration, run the clean-room sandbox test suite:
 
@@ -94,16 +94,10 @@ This test:
 
 ---
 
-## 📋 Platform Support
+## Platform Support
 
 | Operating System | Architectures | Status |
 | :--- | :--- | :--- |
 | **Linux** (Ubuntu, Debian, Fedora, Arch) | `x86_64`, `arm64` | ✅ Fully Supported |
 | **macOS** (Apple Silicon M-Series, Intel) | `arm64`, `x86_64` | ✅ Fully Supported |
 | **WSL2** (Windows Subsystem for Linux) | `x86_64` | ✅ Piggybacks on Linux targets |
-
----
-
-## 📄 License
-
-MIT License. See [LICENSE](file:///home/jwill/Documents/GitHub/android_sdk_installer/LICENSE) for details.
