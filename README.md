@@ -12,7 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/<user>/android_sdk_installer/main/i
 
 Instead of downloading 1.5 GB of Android Studio just to get an Android emulator, or manually hunting down Google's command-line tools zip and wrestling with directory hierarchies:
 
-This installer leverages Google's official **Android CLI** and Google Cloud Storage to configure everything autonomously in one pass:
+This installer leverages Google's official **Android CLI** for Android setup to configure everything autonomously in one pass:
 
 ```
 [1/7] Detect OS & CPU Architecture (Linux / macOS, x64 / arm64)
