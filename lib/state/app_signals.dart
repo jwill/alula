@@ -75,8 +75,29 @@ class AppSignals {
   Future<void> createAvd(String profile) async {
     isBusy.value = true;
     busyMessage.value = 'Creating virtual device ($profile)...';
+    
     await systemService.createEmulator(profile);
+    
     avdsList.value = await systemService.listAvds();
+    isBusy.value = false;
+  }
+
+  Future<void> deleteAvd(String avdName) async {
+    isBusy.value = true;
+    busyMessage.value = 'Deleting $avdName...';
+    
+    // Detach the deletion process to avoid waiting for it
+    systemService.runBackgroundCommand('android', ['emulator', 'remove', avdName]);
+    
+    // Poll for the AVD to disappear
+    for (int i = 0; i < 20; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      avdsList.value = await systemService.listAvds();
+      if (!avdsList.value.any((avd) => avd.name == avdName)) {
+        break;
+      }
+    }
+    
     isBusy.value = false;
   }
 

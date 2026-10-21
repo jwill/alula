@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import '../models/environment_models.dart';
 
 class SystemService {
@@ -22,7 +23,7 @@ class SystemService {
     log('\n\$ $cmdStr');
 
     try {
-      final process = await Process.start(
+      final result = await Process.run(
         executable,
         arguments,
         workingDirectory: workingDirectory,
@@ -30,22 +31,15 @@ class SystemService {
         runInShell: true,
       );
 
-      final stdoutSub = process.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) => log('  $line'));
+      if (result.stdout.toString().isNotEmpty) {
+        log('  ${result.stdout.toString().trim().replaceAll('\n', '\n  ')}');
+      }
+      if (result.stderr.toString().isNotEmpty) {
+        log('[!] ${result.stderr.toString().trim().replaceAll('\n', '\n  [!] ')}');
+      }
 
-      final stderrSub = process.stderr
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) => log('[!] $line'));
-
-      final exitCode = await process.exitCode;
-      await stdoutSub.asFuture();
-      await stderrSub.asFuture();
-
-      log('Process exited with code $exitCode');
-      return exitCode;
+      log('Process exited with code ${result.exitCode}');
+      return result.exitCode;
     } catch (e) {
       log('[ERROR] Failed to start $executable: $e');
       return -1;
@@ -341,53 +335,81 @@ class SystemService {
     return avds;
   }
 
-  /// Lists available Android SDK packages.
+  /// Lists available Android SDK packages and checks their installation status.
   Future<List<SdkPackageItem>> listPackages() async {
-    final packages = <SdkPackageItem>[
+    final Map<String, bool> installedPackages = {};
+    final List<SdkPackageItem> discoveredPackages = [];
+    
+    // Query the actual installation state
+    final result = await Process.run('android', ['sdk', 'list'], runInShell: true);
+    if (result.exitCode == 0) {
+      final lines = result.stdout.toString().split('\n');
+      for (final line in lines) {
+        final trimmed = line.trim();
+        if (trimmed.isNotEmpty) {
+          final parts = trimmed.split(RegExp(r'\s+'));
+          final path = parts.first;
+          installedPackages[path] = true;
+          
+          // Discover NDK versions dynamically
+          if (path.startsWith('ndk/')) {
+            discoveredPackages.add(SdkPackageItem(
+              packagePath: path,
+              displayName: 'NDK ${path.split('/').last}',
+              category: 'NDK',
+            ));
+          }
+        }
+      }
+    }
+
+    final packageList = <SdkPackageItem>[
       const SdkPackageItem(
         packagePath: 'platforms/android-36',
         displayName: 'Android SDK Platform 36',
         category: 'Platforms',
-        isInstalled: true,
       ),
       const SdkPackageItem(
         packagePath: 'platforms/android-35',
         displayName: 'Android SDK Platform 35',
         category: 'Platforms',
-        isInstalled: true,
       ),
       const SdkPackageItem(
         packagePath: 'platforms/android-34',
         displayName: 'Android SDK Platform 34',
         category: 'Platforms',
-        isInstalled: true,
       ),
       const SdkPackageItem(
         packagePath: 'build-tools/36.0.0',
         displayName: 'Build-Tools 36.0.0',
         category: 'Build-Tools',
-        isInstalled: true,
       ),
       const SdkPackageItem(
         packagePath: 'build-tools/35.0.0',
         displayName: 'Build-Tools 35.0.0',
         category: 'Build-Tools',
-        isInstalled: true,
       ),
       const SdkPackageItem(
         packagePath: 'platform-tools',
         displayName: 'Platform-Tools (ADB)',
         category: 'Tools',
-        isInstalled: true,
       ),
       const SdkPackageItem(
         packagePath: 'emulator',
         displayName: 'Android Emulator',
         category: 'Tools',
-        isInstalled: true,
       ),
+      ...discoveredPackages,
     ];
-    return packages;
+
+    return packageList.map((item) {
+      return SdkPackageItem(
+        packagePath: item.packagePath,
+        displayName: item.displayName,
+        category: item.category,
+        isInstalled: installedPackages.containsKey(item.packagePath),
+      );
+    }).toList();
   }
 
   /// Launches an emulator via flutter emulators --launch in the background,
@@ -426,9 +448,17 @@ class SystemService {
   }
 
   /// Creates a virtual device via android emulator create.
+  /// Creates a virtual device via android emulator create.
   Future<bool> createEmulator(String profile) async {
     log('Creating emulator with profile: $profile...');
     final code = await runCommand('android', ['emulator', 'create', profile]);
+    return code == 0;
+  }
+
+  /// Deletes a virtual device via android emulator remove.
+  Future<bool> deleteEmulator(String name) async {
+    log('Deleting emulator: $name...');
+    final code = await runCommand('android', ['emulator', 'remove', name]);
     return code == 0;
   }
 
@@ -437,6 +467,16 @@ class SystemService {
     log('Installing package: $packagePath...');
     final code = await runCommand('android', ['sdk', 'install', packagePath]);
     return code == 0;
+  }
+
+  /// Runs a command in the background, not waiting for exit.
+  void runBackgroundCommand(String executable, List<String> arguments) {
+    log('\n\$ [Background] $executable ${arguments.join(' ')}');
+    Process.start(
+      executable,
+      arguments,
+      mode: ProcessStartMode.detached,
+    ).then((_) => log('Process detached successfully.'));
   }
 
   /// Accepts all Android licenses.

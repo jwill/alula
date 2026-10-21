@@ -487,8 +487,8 @@ export ANDROID_HOME="$ANDROID_SDK_ROOT"
 export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
 
 # Target component versions
-API_LEVEL="35"
-BUILD_TOOLS_VER="35.0.0"
+API_LEVEL="36"
+BUILD_TOOLS_VER="36.0.0"
 SYSTEM_IMAGE="system-images/android-${API_LEVEL}/google_apis/${ANDROID_ARCH}"
 
 log_info "Android Components Target:"
@@ -498,17 +498,41 @@ log_info "  - System Image: $SYSTEM_IMAGE"
 log_info "  - Platform-Tools & Emulator"
 
 if [ "$DRY_RUN" = true ]; then
-  log_info "[DRY-RUN] Would install SDK packages via 'android sdk install'"
+  # Check if packages are already installed even in dry-run, if possible, for better reporting
+  packages_to_install=("platforms/android-${API_LEVEL}" "build-tools/${BUILD_TOOLS_VER}" "platform-tools" "emulator" "$SYSTEM_IMAGE")
+  needed_packages=()
+  for pkg in "${packages_to_install[@]}"; do
+    if ! "$ANDROID_BIN" sdk list | grep -qE "^\s*${pkg}\s"; then
+      needed_packages+=("$pkg")
+    fi
+  done
+
+  if [ ${#needed_packages[@]} -gt 0 ]; then
+    log_info "[DRY-RUN] Would install missing SDK packages: ${needed_packages[*]}"
+  else
+    log_info "[DRY-RUN] All required Android SDK components are already installed."
+  fi
 else
   if [ -x "$ANDROID_BIN" ]; then
     log_info "Executing package installation (this may take 1-2 minutes on first run)..."
-    "$ANDROID_BIN" sdk install \
-      "platforms/android-${API_LEVEL}" \
-      "build-tools/${BUILD_TOOLS_VER}" \
-      platform-tools \
-      emulator \
-      "$SYSTEM_IMAGE" || log_warn "Package installation completed with warnings."
-    log_success "Android SDK components installed."
+
+    # Check if packages are already installed to avoid unnecessary downloads/re-installation
+    packages_to_install=("platforms/android-${API_LEVEL}" "build-tools/${BUILD_TOOLS_VER}" "platform-tools" "emulator" "$SYSTEM_IMAGE")
+    needed_packages=()
+    for pkg in "${packages_to_install[@]}"; do
+      # Use grep to ensure exact match on the package identifier by anchoring to start of line or whitespace
+      if ! "$ANDROID_BIN" sdk list | grep -qE "^\s*${pkg}\s" ; then
+        needed_packages+=("$pkg")
+      fi
+    done
+
+    if [ ${#needed_packages[@]} -gt 0 ]; then
+      log_info "Installing missing packages: ${needed_packages[*]}"
+      "$ANDROID_BIN" sdk install "${needed_packages[@]}" || log_warn "Package installation completed with warnings."
+    else
+      log_success "All required Android SDK components are already installed."
+    fi
+    log_success "Android SDK components installation checked."
   fi
 fi
 

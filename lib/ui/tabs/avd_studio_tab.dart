@@ -34,17 +34,12 @@ class AvdStudioTab extends SignalWidget {
                     const Text('Select Device Hardware Profile:'),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      initialValue: selectedProfile,
+                      value: selectedProfile,
                       decoration: const InputDecoration(border: OutlineInputBorder()),
                       items: profiles.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
                       onChanged: (val) {
                         if (val != null) setState(() => selectedProfile = val);
                       },
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      '• Hardware keyboard will be enabled automatically.\n• The latest system image will be utilized.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ],
                 ),
@@ -225,16 +220,51 @@ class AvdStudioTab extends SignalWidget {
                             style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
                           ),
                         )
-                      : FilledButton.icon(
-                          onPressed: isBusy ? null : () => appSignals.launchAvd(avd.name),
-                          icon: const Icon(Icons.play_arrow, size: 16),
-                          label: const Text('Launch'),
+                      : Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: isBusy ? null : () => appSignals.launchAvd(avd.name),
+                                icon: const Icon(Icons.play_arrow, size: 16),
+                                label: const Text('Launch'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              onPressed: isBusy
+                                  ? null
+                                  : () => _confirmDelete(context, avd.name),
+                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                              tooltip: 'Delete AVD',
+                            ),
+                          ],
                         ),
                 ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context, String avdName) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Virtual Device'),
+        content: Text('Are you sure you want to delete "$avdName"? This action cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.pop(context);
+              appSignals.deleteAvd(avdName);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }
